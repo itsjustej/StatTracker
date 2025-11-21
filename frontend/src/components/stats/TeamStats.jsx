@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -11,70 +11,11 @@ import {
 } from "recharts";
 import { ChevronDown } from "lucide-react";
 
-// ---------------- DEMO DATA ---------------- //
-
-const DEMO_TEAMS = [
-  { id: "1", name: "Lakers" },
-  { id: "2", name: "Celtics" },
-  { id: "3", name: "Warriors" },
-];
-
-const DEMO_TEAM_STATS = {
-  "1": {
-    games: 10,
-    wins: 6,
-    losses: 4,
-    ppg: 112.5,
-    rpg: 45.3,
-    apg: 28.1,
-    spg: 8.2,
-    bpg: 5.1,
-    tpg: 14.4,
-    fgp: 47.2,
-    threepp: 35.8,
-    ftp: 78.5,
-    pointsAcrossGames: [110, 102, 118, 120, 115, 130, 125, 118, 111, 128],
-    pointsAgainstGames: [101, 98, 115, 103, 107, 129, 121, 112, 109, 120],
-  },
-
-  "2": {
-    games: 10,
-    wins: 8,
-    losses: 2,
-    ppg: 115.3,
-    rpg: 46.8,
-    apg: 26.5,
-    spg: 8.9,
-    bpg: 5.8,
-    tpg: 12.1,
-    fgp: 48.1,
-    threepp: 37.2,
-    ftp: 79.1,
-    pointsAcrossGames: [118, 114, 120, 113, 119, 132, 129, 121, 110, 135],
-    pointsAgainstGames: [101, 100, 122, 110, 105, 130, 120, 111, 104, 129],
-  },
-
-  "3": {
-    games: 10,
-    wins: 7,
-    losses: 3,
-    ppg: 118.2,
-    rpg: 42.1,
-    apg: 30.2,
-    spg: 7.5,
-    bpg: 4.9,
-    tpg: 13.1,
-    fgp: 49.5,
-    threepp: 38.5,
-    ftp: 80.2,
-    pointsAcrossGames: [121, 119, 128, 115, 117, 140, 132, 126, 118, 134],
-    pointsAgainstGames: [108, 112, 119, 109, 101, 138, 124, 121, 120, 131],
-  },
-};
-
-// ---------------- DONUT FIXED ---------------- //
-
 function Donut({ title, value, color }) {
+  const numericValue = Number(value);
+  const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
+  const clampedValue = Math.max(0, Math.min(100, safeValue));
+
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 flex flex-col items-center">
       <h3 className="text-white font-bold mb-2">{title}</h3>
@@ -86,60 +27,67 @@ function Donut({ title, value, color }) {
           innerRadius="70%"
           outerRadius="100%"
           startAngle={90}
-          endAngle={90 - (value / 100) * 360}
+          endAngle={90 - (clampedValue / 100) * 360}
           barSize={18}
-          data={[{ value }]}
+          data={[{ value: clampedValue }]}
         >
           <RadialBar dataKey="value" fill={color} background={{ fill: "#1e293b" }} />
         </RadialBarChart>
       </ResponsiveContainer>
 
-      <p className="text-xl font-bold text-white mt-2">{value.toFixed(1)}%</p>
+      <p className="text-xl font-bold text-white mt-2">{clampedValue.toFixed(1)}%</p>
     </div>
   );
 }
-
-// ---------------- STATS CARD ---------------- //
 
 function StatCard({ label, value, color }) {
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 text-center">
       <p className="text-slate-400 text-sm mb-1">{label}</p>
-      <p className={`text-3xl font-bold ${color}`}>{value.toFixed(1)}</p>
+      <p className={`text-3xl font-bold ${color}`}>{Number(value || 0).toFixed(1)}</p>
     </div>
   );
 }
 
-// ---------------- MAIN COMPONENT ---------------- //
-
 export default function TeamStats() {
-  const [selectedTeam, setSelectedTeam] = useState("1");
-  const stats = DEMO_TEAM_STATS[selectedTeam];
+  const [teams, setTeams] = useState([]);
+  const [selectedTeam, setSelectedTeam] = useState("");
+  const [stats, setStats] = useState(null);
 
-  // Build line chart data
+  // ---- Fetch all teams ----
+  useEffect(() => {
+    fetch("http://localhost:5000/api/teams")
+      .then(res => res.json())
+      .then(data => {
+        setTeams(data);
+        if (data.length > 0) setSelectedTeam(data[0].id);
+      })
+      .catch(err => console.error("Failed to load teams:", err));
+  }, []);
+
+  // ---- Fetch team stats whenever dropdown changes ----
+  useEffect(() => {
+    if (!selectedTeam) return;
+
+    fetch(`http://localhost:5000/api/teamstats/${selectedTeam}`)
+      .then(res => res.json())
+      .then(data => setStats(data))
+      .catch(err => console.error("Failed to load team stats:", err));
+  }, [selectedTeam]);
+
+  // Build line chart data safely
   const chartData = useMemo(() => {
+    if (!stats?.pointsAcrossGames) return [];
+
     return stats.pointsAcrossGames.map((pf, i) => ({
       game: `G${i + 1}`,
       pf,
-      pa: stats.pointsAgainstGames[i],
+      pa: stats.pointsAgainstGames[i] || 0
     }));
   }, [stats]);
 
-  // 🚀 Compute dynamic Y-axis domain snapping to 20-point increments
-  const { minY, maxY } = useMemo(() => {
-    const allValues = [...stats.pointsAcrossGames, ...stats.pointsAgainstGames];
-    const min = Math.min(...allValues);
-    const max = Math.max(...allValues);
-
-    // Snap down/up to nearest 20
-    const snappedMin = Math.floor(min / 20) * 20;
-    const snappedMax = Math.ceil(max / 20) * 20;
-
-    return {
-      minY: snappedMin,
-      maxY: snappedMax,
-    };
-  }, [stats]);
+  if (teams.length === 0) return <p className="text-white">Loading teams...</p>;
+  if (!stats) return <p className="text-white">Loading team stats...</p>;
 
   return (
     <div className="space-y-10">
@@ -156,7 +104,7 @@ export default function TeamStats() {
             onChange={(e) => setSelectedTeam(e.target.value)}
             className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white appearance-none"
           >
-            {DEMO_TEAMS.map((t) => (
+            {teams.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
@@ -192,31 +140,13 @@ export default function TeamStats() {
           <LineChart data={chartData}>
             <XAxis dataKey="game" stroke="#94a3b8" hide={true} />
 
-            <YAxis
-              stroke="#94a3b8"
-              domain={[minY, maxY]}
-              tick={{ fill: "white" }}
-            />
+            <YAxis stroke="#94a3b8" />
 
             <Legend wrapperStyle={{ color: "white" }} />
 
-            <Line
-              type="monotone"
-              dataKey="pf"
-              stroke="#f59e0b"
-              strokeWidth={3}
-              dot={{ r: 5 }}
-              name="Points For"
-            />
+            <Line type="monotone" dataKey="pf" stroke="#f59e0b" strokeWidth={3} dot={{ r: 5 }} name="Points For" />
 
-            <Line
-              type="monotone"
-              dataKey="pa"
-              stroke="#3b82f6"
-              strokeWidth={3}
-              dot={{ r: 5 }}
-              name="Points Against"
-            />
+            <Line type="monotone" dataKey="pa" stroke="#3b82f6" strokeWidth={3} dot={{ r: 5 }} name="Points Against" />
           </LineChart>
         </ResponsiveContainer>
       </div>

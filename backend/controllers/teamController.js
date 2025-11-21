@@ -8,30 +8,49 @@ import db from "../db.js";
  */
 export const getAllTeams = async (req, res) => {
   try {
-    const [teams] = await db.query(
-      `
+    const [teams] = await db.query(`
       SELECT 
-        Teams.TeamID,
-        Teams.TeamName,
-        Teams.TeamColor,
+        Teams.TeamID AS id,
+        Teams.TeamName AS name,
+        Teams.TeamColor AS color,
         Teams.Wins,
         Teams.Losses,
         Teams.Ties,
         Teams.PointDifferential,
         Teams.WinPercentage,
-        JSON_ARRAYAGG(
-          JSON_OBJECT(
-            'PlayerID', Players.PlayerID,
-            'PlayerName', Players.PlayerName
-          )
-        ) AS Players
+        Players.PlayerID,
+        Players.PlayerName
       FROM Teams
       LEFT JOIN Players ON Teams.TeamID = Players.TeamID
-      GROUP BY Teams.TeamID;
-      `
-    );
+      ORDER BY Teams.TeamID;
+    `);
 
-    res.json(teams);
+    // Reformat into nested structure the frontend expects
+    const formatted = [];
+
+    teams.forEach(row => {
+      let team = formatted.find(t => t.id === row.id);
+      if (!team) {
+        team = {
+          id: row.id,
+          name: row.name,
+          color: row.color,
+          players: []
+        };
+        formatted.push(team);
+      }
+
+      // Add players only if they exist
+      if (row.PlayerID) {
+        team.players.push({
+          id: row.PlayerID,
+          name: row.PlayerName
+        });
+      }
+    });
+
+    res.json(formatted);
+
   } catch (err) {
     console.error("Error fetching teams:", err);
     res.status(500).json({ error: "Failed to retrieve teams" });
